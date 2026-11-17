@@ -1,0 +1,22 @@
+#!/bin/bash
+# Atlas: four nodes. The strong/hybrid/repro/weak points beyond one node
+# (2 and 4 nodes); rank counts already covered by atlas_1node are skipped.
+# place=scatter puts the four chunks on four different nodes.
+#PBS -N atlas_4node
+#PBS -l select=4:ncpus=24:mpiprocs=24
+#PBS -l place=scatter
+#PBS -l walltime=06:00:00
+#PBS -j oe
+#PBS -q parallel
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"  # PBS starts the job in $HOME
+export CG_CLUSTER=atlas CG_CMAKE_ARGS="-DCG_ENABLE_CUDA=OFF"
+source scripts/cluster/job_common.sh
+export CG_MIN_RANKS=$((CG_CORES + 1))
+bash scripts/bench.sh strong hybrid repro weak
+
+if [ -s "$CG_OUT/failures.txt" ]; then
+  echo "some runs failed, see $CG_OUT/failures.txt" >&2
+  exit 1
+fi

@@ -1,0 +1,42 @@
+#!/bin/bash
+# e8.pbs -- E8 weak scaling.  Layout is chosen by the resource request (run_e8.sh detects it from $PBS_NODEFILE):
+#   single node (E8s): qsub -l select=1:ncpus=72 -l walltime=00:40:00 -v NAME=e8s_r1 pbs/e8.pbs
+#   8 x 32 cores (E8m): qsub -l select=8:ncpus=32:mpiprocs=32 -l place=scatter -l walltime=01:30:00 -v NAME=e8m_r1 pbs/e8.pbs
+# CPU-only request (no ngpus).  Decision 2026-11-12: node class (cn-* or gn-*) is NOT restricted for weak scaling; CPU_ONLY defaults to 0 here
+# (set CPU_ONLY=1 to demand cn-* nodes).  Every result lists the nodes it ran on (hosts.csv / nodes.csv).  No mem= (the Vanda hook overrides it).
+#PBS -N p3_e8
+#PBS -l select=1:ncpus=72
+#PBS -l walltime=00:40:00
+#PBS -j oe
+REPO=${REPO:-${PBS_O_WORKDIR:-$PWD}}     # submit from the scaling_2d3d directory (qsub pbs/....pbs)
+cd "$REPO" || exit 1
+module load ${MODULES:-nvhpc-hpcx-cuda12/26.1}
+echo "== nodes"; sort $PBS_NODEFILE | uniq -c
+if [ "${CPU_ONLY:-0}" = 1 ] && sort -u $PBS_NODEFILE | sed 's/\..*//' | grep -qviE '^cn-[0-9]+$'; then
+  echo "NOT_CPU_NODES: $(sort -u $PBS_NODEFILE | sed 's/\..*//' | tr '\n' ' ')"; exit 3
+fi
+NN=$(sort -u $PBS_NODEFILE | wc -l)
+NC=$(awk '/^Cpus_allowed_list/ {print $2}' /proc/self/status | tr ',' '\n' | awk -F- 'NF==2 {s+=$2-$1+1; next} NF==1 && $1!="" {s+=1} END{print s+0}')
+echo "== host $(hostname) nodes=$NN cpuset-cores=$NC jobid=${PBS_JOBID:-}"
+if [ "$NN" -gt 1 ]; then
+  [ "$NN" -eq "${EXPECT_NN:-8}" ] || echo "WARNING: $NN distinct nodes, expected ${EXPECT_NN:-8} (place=scatter)"
+  if ! timeout 60 mpirun -np 2 --hostfile $PBS_NODEFILE --map-by node --bind-to none hostname >/dev/null 2>&1; then
+    echo "BAD_NODE_PAIR: $(sort -u $PBS_NODEFILE | tr '\n' ' ')"; exit 3
+  fi
+  export BIN=$REPO/bin-omp-e8-${PBS_JOBID:-$$}          # shared home: every node must see the binary
+else
+  [ "$NC" -ge 72 ] || echo "WARNING: only $NC cores: ranks above $NC are skipped (results incomplete)"
+  export BIN=/tmp/p3bin_${PBS_JOBID:-$$}
+fi
+export RES=$REPO/results_rerun NAME=${NAME:-e8s_r1}
+make -C src BIN=$BIN ARCH_FLAGS="${ARCH_FLAGS:--march=native}" poisson >/dev/null || exit 1
+if [ "$NN" -gt 1 ]; then      # smoke: 64 ranks on 2 nodes, tiny problem
+  echo "== smoke: 64 ranks on 2 nodes"
+  SMOKE_HF=$(mktemp); for nd in $(awk '!s[$0]++' $PBS_NODEFILE | head -2); do for i in $(seq 32); do echo $nd; done; done > $SMOKE_HF
+  . scripts/env.sh; export OMP_NUM_THREADS=1 OMP_PLACES=cores OMP_PROC_BIND=close MPI_OVERSUB=""
+  MPI_EXTRA="--hostfile $SMOKE_HF --map-by ppr:32:node --bind-to none" mpi_run 64 scripts/bind_rank.sh $BIN/poisson --dim 2 --n 256 --iters 10 --quiet 1 2>&1 \
+    | grep -vE "UCX +WARN|parser.c|^Authorized" | head -20; src=${PIPESTATUS[0]}
+  rm -f $SMOKE_HF; echo "smoke rc=$src"; [ "$src" -eq 0 ] || { echo "SMOKE FAILED"; exit 4; }
+fi
+bash scripts/run_e8.sh; rc=$?
+rm -rf "$BIN"; echo "##### E8_DONE rc=$rc #####"; exit $rc

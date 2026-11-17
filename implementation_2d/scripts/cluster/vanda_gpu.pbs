@@ -1,0 +1,25 @@
+#!/bin/bash
+# Vanda GPU node(s): GPU validation, single-GPU sizes, strong and weak scaling
+# over GPUs with one MPI rank per GPU. About 10 minutes.
+# One A40 node (2 GPUs); the toolchain below is the one the reported GPU
+# results were produced with (CUDA-aware Open MPI 5.0.3, CUDA 12.9.1).
+#PBS -N vanda_gpu
+#PBS -l select=1:ncpus=72:mpiprocs=72:ngpus=2
+#PBS -l walltime=01:30:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>      # e.g. personal-<NUSNET id>, as printed by `hpc cpu` / `hpc gpu`
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"  # PBS starts the job in $HOME
+export CG_MODULES="foss/2024a CMake/3.29.3-GCCcore-13.3.0 CUDA/12.9.1"
+export CG_CLUSTER=vanda
+source scripts/cluster/job_common.sh
+nvidia-smi
+CG_VALIDATE_CPU=0 bash scripts/validate.sh "$CG_OUT/validation" || true
+bash scripts/bench.sh gpu gpu_strong gpu_weak
+
+if [ -s "$CG_OUT/failures.txt" ]; then
+  echo "some runs failed, see $CG_OUT/failures.txt" >&2
+  exit 1
+fi

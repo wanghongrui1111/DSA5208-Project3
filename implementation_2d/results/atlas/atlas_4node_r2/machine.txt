@@ -1,0 +1,7 @@
+date: 2026-11-06T11:03:25+0800
+host: cnode-33-43-45  cores/node used: 24  nodes: 4  gpus/node: 1
+Core(s) per socket:    48
+Socket(s):             2
+NUMA node(s):          4
+Model name:            AMD EPYC 7R13 Processor
+mpirun (Open MPI) 4.1.5

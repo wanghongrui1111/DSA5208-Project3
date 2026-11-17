@@ -1,0 +1,23 @@
+#!/bin/bash
+# Atlas (CPU only, unlimited use): one full node. CPU validation, serial
+# baselines, strong scaling with every halo strategy, rank placement, hybrid
+# splits, cost of reproducible sums, weak scaling.
+# 24 cores in the "parallel" queue (Nov 2026; the nodes themselves are larger
+# AMD EPYC machines shared with other jobs).
+#PBS -N atlas_1node
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=06:00:00
+#PBS -j oe
+#PBS -q parallel
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"  # PBS starts the job in $HOME
+export CG_CLUSTER=atlas CG_CMAKE_ARGS="-DCG_ENABLE_CUDA=OFF"
+source scripts/cluster/job_common.sh
+CG_VALIDATE_GPU=0 bash scripts/validate.sh "$CG_OUT/validation" || true
+bash scripts/bench.sh serial strong placement hybrid repro weak
+
+if [ -s "$CG_OUT/failures.txt" ]; then
+  echo "some runs failed, see $CG_OUT/failures.txt" >&2
+  exit 1
+fi

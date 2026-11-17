@@ -1,0 +1,34 @@
+#!/bin/bash
+# e2m8.pbs -- (NAME=<dir name>, PASSES default 2, BIG_ITERS/BIG_REPEAT for >=2-node points) same experiment as e2m.pbs, but requested as 8 chunks x 32 cores (256 cores) instead of 4 x 64.
+#   Node counts 1,2,4,8 => 32,64,128,256 ranks, 32 ranks per node, first k nodes of the allocation, same job.
+#   qsub -l select=8:ncpus=32:mpiprocs=32 -l place=scatter -l walltime=00:40:00 pbs/e2m8.pbs
+#   Own binary dir on the shared home (every node must see it).  No mem= (the Vanda hook overrides it).
+#PBS -N p3_e2m8
+#PBS -l select=8:ncpus=32:mpiprocs=32
+#PBS -l place=scatter
+#PBS -l walltime=00:40:00
+#PBS -j oe
+REPO=${REPO:-${PBS_O_WORKDIR:-$PWD}}     # submit from the scaling_2d3d directory (qsub pbs/....pbs)
+cd "$REPO" || exit 1
+module load ${MODULES:-nvhpc-hpcx-cuda12/26.1}
+echo "== nodes"; sort $PBS_NODEFILE | uniq -c
+# Optional: CPU_ONLY=1 accepts only cn-* nodes (other nodes => exit 3, resubmitted by submit_retry.sh).  Default 0 = any node, as published.
+if [ "${CPU_ONLY:-0}" = 1 ] && sort -u $PBS_NODEFILE | sed 's/\..*//' | grep -qviE '^cn-[0-9]+$'; then
+  echo "NOT_CPU_NODES: $(sort -u $PBS_NODEFILE | sed 's/\..*//' | tr '\n' ' ')"; exit 3
+fi
+NN=$(sort -u $PBS_NODEFILE | wc -l); [ "$NN" -eq 8 ] || echo "WARNING: $NN distinct nodes, expected 8 (place=scatter)"
+if ! timeout 60 mpirun -np 2 --hostfile $PBS_NODEFILE --map-by node --bind-to none hostname >/dev/null 2>&1; then
+  echo "BAD_NODE_PAIR: $(sort -u $PBS_NODEFILE | tr '\n' ' ')"; exit 3
+fi
+export RES=$REPO/results_rerun NAME=${NAME:-e2m8_r1} NODES_LIST=${NODES_LIST:-1:2:4:8} PASSES=${PASSES:-2}
+export BIN=$REPO/bin-omp-e2m8-${PBS_JOBID:-$$}      # shared home: every node must see the binary
+make -C src BIN=$BIN ARCH_FLAGS="${ARCH_FLAGS:--march=native}" poisson >/dev/null || exit 1
+# smoke test first: one tiny 2-node run; on failure print everything and stop (do not burn 24 failing runs)
+echo "== smoke: 64 ranks on 2 nodes, n=256, 10 iters"
+SMOKE_HF=$(mktemp); for nd in $(awk '!s[$0]++' $PBS_NODEFILE | head -2); do for i in $(seq 32); do echo $nd; done; done > $SMOKE_HF
+. scripts/env.sh; export OMP_NUM_THREADS=1 OMP_PLACES=cores OMP_PROC_BIND=close MPI_OVERSUB=""
+MPI_EXTRA="--hostfile $SMOKE_HF --map-by ppr:32:node --bind-to none" mpi_run 64 scripts/bind_rank.sh $BIN/poisson --dim 2 --n 256 --iters 10 --quiet 1 2>&1 \
+  | grep -vE "UCX +WARN|parser.c|^Authorized" | head -20; src=${PIPESTATUS[0]}
+rm -f $SMOKE_HF; echo "smoke rc=$src"; [ "$src" -eq 0 ] || { echo "SMOKE FAILED"; exit 4; }
+bash scripts/run_e2m8.sh; rc=$?
+rm -rf "$BIN"; echo "##### E2M8_DONE rc=$rc #####"; exit $rc

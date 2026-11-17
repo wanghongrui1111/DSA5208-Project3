@@ -1,0 +1,9 @@
+date: 2026-11-07T01:52:35+08:00
+host: GN-A40-022  cores/node used: 72  nodes: 1  gpus/node: 2
+Model name:                           Intel(R) Xeon(R) Platinum 8452Y
+Core(s) per socket:                   36
+Socket(s):                            2
+NUMA node(s):                         2
+GPU 0: NVIDIA A40 (UUID: GPU-171da010-aea9-fa0b-93c3-829bef082c26)
+GPU 1: NVIDIA A40 (UUID: GPU-e8f00b16-0c01-0f26-fd94-d54a1ddbdddc)
+mpirun (Open MPI) 5.0.3

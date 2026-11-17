@@ -1,0 +1,7 @@
+date: 2026-11-06T22:03:54+08:00
+host: CN-100  cores/node used: 72  nodes: 1  gpus/node: 1
+Model name:                           Intel(R) Xeon(R) Platinum 8452Y
+Core(s) per socket:                   36
+Socket(s):                            2
+NUMA node(s):                         2
+mpirun (Open MPI) 4.1.5

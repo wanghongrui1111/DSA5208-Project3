@@ -1,0 +1,21 @@
+#!/bin/bash
+# e1.pbs -- E1 serial scale curve (1 core).  qsub pbs/e1.pbs      (do not set mem=: the Vanda hook overrides it)
+#PBS -N p3_e1
+#PBS -l select=1:ncpus=1
+#PBS -l walltime=01:00:00
+#PBS -j oe
+REPO=${REPO:-${PBS_O_WORKDIR:-$PWD}}     # submit from the scaling_2d3d directory (qsub pbs/....pbs)
+cd "$REPO" || exit 1
+module load ${MODULES:-nvhpc-hpcx-cuda12/26.1}
+# Optional: CPU_ONLY=1 accepts only cn-* nodes (other nodes => exit 3, resubmitted by submit_retry.sh).  Default 0 = any node, as published.
+if [ "${CPU_ONLY:-0}" = 1 ] && sort -u $PBS_NODEFILE | sed 's/\..*//' | grep -qviE '^cn-[0-9]+$'; then
+  echo "NOT_CPU_NODES: $(sort -u $PBS_NODEFILE | sed 's/\..*//' | tr '\n' ' ')"; exit 3
+fi
+echo "== host $(hostname) cpu: $(lscpu | sed -n 's/^Model name: *//p')  jobid=${PBS_JOBID:-}"
+# per-job binary on THIS node (no build races between concurrent jobs, -march=native matches the node)
+export BIN=/tmp/p3bin_${PBS_JOBID:-$$}; export RES=$REPO/results_rerun
+make -C src BIN=$BIN ARCH_FLAGS="${ARCH_FLAGS:--march=native}" serial >/dev/null || exit 1
+# NAME=e1 (default) or e1_r2, e1_r3 ... : each repeat job writes its own directory (csv inside is e1.csv)
+export NAME=${NAME:-e1}
+bash scripts/run_e1.sh; rc=$?
+rm -rf "$BIN"; echo "##### E1_DONE rc=$rc #####"; exit $rc

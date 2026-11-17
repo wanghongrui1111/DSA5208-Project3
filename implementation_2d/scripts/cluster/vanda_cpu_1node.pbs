@@ -1,0 +1,22 @@
+#!/bin/bash
+# Vanda (limited core-hours): one 72-core CPU node, to answer Lecture 9's
+# question of 1 x 72 vs 2 x 36 vs 4 x 18 ... ranks x threads, plus the
+# serial baseline and rank placement. About 15 minutes on 72 cores.
+# EDIT: copy the queue (and project, if any) from the template `hpc cpu` prints.
+#PBS -N vanda_cpu
+#PBS -l select=1:ncpus=72:mpiprocs=72
+#PBS -l walltime=01:30:00
+#PBS -j oe
+##PBS -q <queue>
+##PBS -P <project>      # e.g. personal-<NUSNET id>, as printed by `hpc cpu` / `hpc gpu`
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"  # PBS starts the job in $HOME
+export CG_CLUSTER=vanda CG_CMAKE_ARGS="-DCG_ENABLE_CUDA=OFF"
+source scripts/cluster/job_common.sh
+bash scripts/bench.sh serial hybrid placement
+
+if [ -s "$CG_OUT/failures.txt" ]; then
+  echo "some runs failed, see $CG_OUT/failures.txt" >&2
+  exit 1
+fi
